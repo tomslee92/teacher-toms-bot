@@ -56,19 +56,15 @@ Format exactly like this:
 🎯 문법 점수: X/10
 [Korean sentence explaining the score]
 
-
 ✅ 잘한 점
 [One encouraging Korean sentence]
-
 
 📝 문법 피드백
 [Korean explanation of the grammar issue]
 → 수정: [Corrected English sentence]
 
-
 💡 더 자연스러운 표현
 → [More natural English version]
-
 
 💪 [One short motivating Korean sentence]
 
@@ -109,10 +105,9 @@ Format exactly like this:
 💡 사용 팁 (Usage Tip)
 [One short Korean tip about when to use this naturally]
 
-
 💪 [One short encouraging Korean sentence]
 
-CRITICAL: The final motivational line must be 100% pure Korean hangul only. No Chinese characters. No hanja. Example: 계속 연습하세요! or 잘하고 있어요! or 화이팅! Korean and English ONLY. Under 120 words."""
+Korean and English ONLY. Under 120 words."""
         }]
     )
     return response.choices[0].message.content
