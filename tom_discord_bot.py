@@ -40,36 +40,63 @@ async def transcribe_audio(file_path: str) -> str:
 
 # ── Grammar feedback ──────────────────────────────────────────────────────────
 async def get_grammar_feedback(text: str, student_name: str) -> str:
+    # Adjust feedback depth based on length of transcription
+    word_count = len(text.split())
+    if word_count > 50:
+        depth_instruction = f"""This is a longer response ({word_count} words). 
+Analyze the ENTIRE text carefully and identify ALL grammar errors.
+List each error separately under 문법 피드백.
+Be thorough — do not skip any mistakes."""
+    else:
+        depth_instruction = "Analyze the text and identify the main grammar issues."
+
     response = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
+        max_tokens=800,
         messages=[{
             "role": "system",
             "content": "You are Tom, a warm English grammar coach for Korean learners at Wayve English. You ONLY write in Korean and English. You NEVER use Chinese, Japanese, Russian, or any other script. Every single word must be either Korean (한글) or English (Latin alphabet). No exceptions."
         }, {
             "role": "user",
-            "content": f"""Student {student_name} said or wrote in English: "{text}"
+            "content": f"""Student {student_name} said or wrote in English:
+
+"{text}"
+
+{depth_instruction}
 
 Give grammar feedback using ONLY Korean and English (no other languages or scripts).
 
 Format exactly like this:
 
 🎯 문법 점수: X/10
-[Korean sentence explaining the score]
+[Korean sentence explaining the overall score]
 
 ✅ 잘한 점
-[One encouraging Korean sentence]
+[One encouraging Korean sentence about what they did well]
 
 📝 문법 피드백
-[Korean explanation of the grammar issue]
-→ 수정: [Corrected English sentence]
+[List EVERY grammar error found — number each one]
+1. [Korean explanation of error]
+→ 수정: [Corrected version in English]
+
+2. [Korean explanation of next error if any]
+→ 수정: [Corrected version in English]
+
+(continue for all errors found)
 
 💡 더 자연스러운 표현
-→ [More natural English version]
+→ [The most natural native English version of their full message]
 
 💪 [One short motivating Korean sentence]
 
-Scoring: 10=perfect, 8-9=minor issues, 6-7=some mistakes, 4-5=several issues, 1-3=major issues
-Under 120 words. Korean and English ONLY."""
+Scoring guide:
+10/10 = Perfect grammar
+8-9/10 = 1-2 minor issues
+6-7/10 = Several noticeable mistakes
+4-5/10 = Many grammar issues
+1-3/10 = Major restructuring needed
+
+CRITICAL: Korean and English ONLY. The final motivational line must be pure Korean hangul — no Chinese characters, no hanja."""
         }]
     )
     return response.choices[0].message.content
@@ -78,6 +105,7 @@ Under 120 words. Korean and English ONLY."""
 async def handle_korean_question(text: str, student_name: str) -> str:
     response = groq_client.chat.completions.create(
         model="llama-3.3-70b-versatile",
+        max_tokens=400,
         messages=[{
             "role": "system",
             "content": "You are Tom, a warm English teacher for Korean learners at Wayve English. You ONLY write in Korean and English. You NEVER use Chinese, Japanese, Russian, or any other script. Every single word must be either Korean (한글) or English (Latin alphabet). No exceptions."
@@ -105,12 +133,39 @@ Format exactly like this:
 💡 사용 팁 (Usage Tip)
 [One short Korean tip about when to use this naturally]
 
-💪 [One short encouraging Korean sentence]
+💪 [One short encouraging Korean sentence — pure Korean hangul only, no Chinese characters]
 
-Korean and English ONLY. Under 120 words."""
+Korean and English ONLY."""
         }]
     )
     return response.choices[0].message.content
+
+# ── Split long messages for Discord (2000 char limit) ────────────────────────
+async def send_long_message(channel, content: str, reference=None):
+    if len(content) <= 1900:
+        if reference:
+            await reference.reply(content)
+        else:
+            await channel.send(content)
+        return
+
+    # Split at natural breakpoints
+    parts = []
+    current = ""
+    for line in content.split("\n"):
+        if len(current) + len(line) + 1 > 1900:
+            parts.append(current)
+            current = line
+        else:
+            current += "\n" + line if current else line
+    if current:
+        parts.append(current)
+
+    for i, part in enumerate(parts):
+        if i == 0 and reference:
+            await reference.reply(part)
+        else:
+            await channel.send(part)
 
 # ── Bot ready ─────────────────────────────────────────────────────────────────
 @bot.event
@@ -154,10 +209,11 @@ async def on_message(message):
 
                         if is_korean(transcription):
                             feedback = await handle_korean_question(transcription, student_name)
-                            await message.reply(feedback)
+                            await send_long_message(message.channel, feedback, reference=message)
                         else:
                             feedback = await get_grammar_feedback(transcription, student_name)
-                            await message.reply(f"🎙 **{student_name}이/가 말한 내용**\n\"{transcription}\"\n\n{feedback}")
+                            full_response = f"🎙 **{student_name}이/가 말한 내용**\n\"{transcription}\"\n\n{feedback}"
+                            await send_long_message(message.channel, full_response, reference=message)
                     except Exception as e:
                         logger.error(f"Audio error: {e}")
                         await message.reply("❗ 죄송해요, 문제가 생겼어요. 다시 시도해 주세요!")
@@ -169,10 +225,11 @@ async def on_message(message):
             try:
                 if is_korean(message.content):
                     feedback = await handle_korean_question(message.content, student_name)
-                    await message.reply(feedback)
+                    await send_long_message(message.channel, feedback, reference=message)
                 else:
                     feedback = await get_grammar_feedback(message.content, student_name)
-                    await message.reply(f"✍️ **{student_name}이/가 쓴 내용**\n\"{message.content}\"\n\n{feedback}")
+                    full_response = f"✍️ **{student_name}이/가 쓴 내용**\n\"{message.content}\"\n\n{feedback}"
+                    await send_long_message(message.channel, full_response, reference=message)
             except Exception as e:
                 logger.error(f"Text error: {e}")
                 await message.reply("❗ 잠깐 문제가 생겼어요. 다시 시도해 주세요!")
